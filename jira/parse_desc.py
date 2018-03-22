@@ -11,10 +11,25 @@ import jieba
 def main():
 	global featureWordList
 
-	tree = ElementTree.parse('desc.xml')
+	tree = ElementTree.parse('img80.xml')
 	root = tree.getroot()
-
-	for p in root.findall('p'):
-		print(p.text)
+	
+	#channel = root.find('channel')
+	#issue = channel.find('item')
+	desc = root.find('description')
+	
+	
+	
+	text = '<rss>'+desc.text.replace("<br/>", "")+'</rss>'
+	#print(text)
+	text = text.encode('utf-8')
+	desc_root = ElementTree.fromstring(text)
+	print(''.join(desc_root.itertext()))
+	#for element in desc_root.iter():
+		#print(element, ', ', element.text)
+		#print(p.text)
+		#print(element.text)
+		#if element.text != None:
+		#	print('token = {}'.format(element.text.encode('utf-8')))
 
 main()

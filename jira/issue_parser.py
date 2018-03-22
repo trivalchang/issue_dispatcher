@@ -5,11 +5,13 @@ from xml.etree import ElementTree
 from xml.etree.ElementTree import Element, SubElement
 #from lxml import etree
 import jieba
+from hanziconv import HanziConv
 
 ENG_NUM = 0
 CH = 1
 
 featureWordList = []
+issueWordList = dict()
 
 class jira_xml_reader:
 	root = None
@@ -26,26 +28,38 @@ class jira_xml_reader:
 			print('xml open error!')
 
 	def parseDesc(self, desc):
-		lines = []
-		text = '<rss>'+desc.text.replace("<br/>", "")+'</rss>'
+		lines = ''
+		if desc.text == None:
+			return lines
+		text = '<rss>'+desc.text.replace("<br/>", "").replace('&nbsp;', '')+'</rss>'
 		text = text.encode('utf-8')
-		desc_root = ElementTree.fromstring(text)
+		try:
+			desc_root = ElementTree.fromstring(text)
+		except:
+			print('=========error========')
+			print(text)
 		if desc_root == None:
 			print('can not decode description')
 			return lines
-		for p in desc_root.findall('p'):
-			lines.append(p.text)
+		lines = lines.join(desc_root.itertext())
+		#for element in desc_root.iter():
+			#if element.text != None:
+				#lines.append(element.text)			
+		
 		return lines
 		
 	def getIssueInfo(self):
 		channel = self.root.find('channel')
 		for issue in channel.findall('item'):
+			title = issue.find('title').text
 			summary = issue.find('summary').text
+			key = issue.find('key').text
+			print('key = ', key)
 			desc = self.parseDesc(issue.find('description'))
 			#desc = issue.find('description').text
 
-			key = issue.find('key').text
-			yield(summary, key, desc)
+			
+			yield(title, summary, key, desc)
 			
 
 def prune_text(str):
@@ -88,6 +102,7 @@ def extract_words(str):
 	sentence = ''
 	currentEncoding = -1
 	encoding = -1
+	#str = HanziConv.toTraditional(str)
 	for ch in str:
 		#print(ch)
 		valid = False
@@ -119,47 +134,66 @@ def extract_words(str):
 		
 	return wordList
 
-def addFeature(words):
-	global featureWordList
+def addFeature(key, words):
+	global featureWordList, issueWordList
 	
 	npWords = np.array(words)
+	issueWordList[key] = []
+
+	for w in words:
+		issueWordList[key].append(w)
+	
 	for w in np.unique(words):
 		if w not in featureWordList:
 			featureWordList.append(w)
-		
 			
+
+#fileList = ['jira_all_1.xml', 'jira_all.xml', 'FREEWVIEW.xml']
+fileList = ['AND_CLOSED.xml']
+#fileList = ['ML3RTANOM-461.xml']
+#fileList = ['img80.xml']			
 def main():
 	global featureWordList
-
-	issue_parser = jira_xml_reader('ML3RTANOM-375.xml')
-	#issue_parser = jira_xml_reader('jira_all_1.xml')
-	#issue_parser = jira_xml_reader('img80.xml')
-	issue_parser.basicInfo()
-	keywordList = []
-	#issue_parser.getIssueInfo()
+	
 	issue_cnt = 0
-	for (summary, key, desc) in issue_parser.getIssueInfo():
-		words = []
-		issue_cnt = issue_cnt + 1
-		#print('========== summary ============ ')
-		summary = prune_text(summary)
-		#print(summary)
-		words += extract_words(summary)
-		#print('========== key ============ ')
-		key = prune_text(key)
-		words += extract_words(key)
-		#print(key)
-		print('========== description ============ ')
-		#print(desc)
-		for line in desc:
-			#print(line)
-			line = prune_text(line)
-			words += extract_words(line)
-		addFeature(words)
+	for f in fileList:
+		issue_parser = jira_xml_reader(f)
+		issue_parser.basicInfo()
+
+		for (title, summary, key, desc) in issue_parser.getIssueInfo():
+			words = []
+			issue_cnt = issue_cnt + 1
+
+			title = prune_text(title)
+			words += extract_words(title)		
+
+			summary = prune_text(summary)
+			words += extract_words(summary)
+			
+			if key == 'ML3RTANOM-276':
+				print('got ', key)
+			key = prune_text(key)
+
+			#print(desc)
+			#for line in desc:
+			#	if key == 'ML3RTANOM-276':
+			#		print(line)
+			desc = prune_text(desc)
+			words += extract_words(desc)
+			if key == 'ML3RTANOM-276':
+				print('words = ', words)
+			addFeature(key, words)
 
 	print('\n\nTotal Issue         {}'.format(issue_cnt))
 	print('feature space      {}'.format(len(featureWordList)))
-	for f in featureWordList:
-		print('token = {}'.format(f.encode('utf-8')))
+	#for f in featureWordList:
+		#print('token = {}'.format(f.encode('utf-8')))
+		#print('token = {}'.format(f))
 
+	for key, wl in issueWordList.items():
+		if len(wl) < 10:
+			print('key = ', key)
+			print('		words = ', wl)
+		
+		
 main()
