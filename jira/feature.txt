@@ -1,7 +1,0 @@
-self.root = <Element 'rss' at 0x7f8b6245c728>
-xml open OK
-========== description ============ 
-
-
-Total Issue         1
-feature space      12
