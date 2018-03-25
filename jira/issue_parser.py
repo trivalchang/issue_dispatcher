@@ -1,17 +1,32 @@
 from __future__ import print_function
 
+import os
+import sys
+import io
+
 import numpy as np
 from xml.etree import ElementTree
 from xml.etree.ElementTree import Element, SubElement
+
+from collections import OrderedDict
+
 #from lxml import etree
 import jieba
 from hanziconv import HanziConv
 
+sys.path.append('/Users/developer/guru/utility')
+from fileOp.h5_dataset import h5_dump_dataset, h5_load_dataset
+
+from tf_idf import form_codebook, print_codebook, comput_tf_idf
+
 ENG_NUM = 0
 CH = 1
 
-featureWordList = []
+codebook = None
 issueWordList = dict()
+issueFeatureList = dict()
+issueLabelList = dict()
+myDict = []
 
 class jira_xml_reader:
 	root = None
@@ -54,7 +69,6 @@ class jira_xml_reader:
 			title = issue.find('title').text
 			summary = issue.find('summary').text
 			key = issue.find('key').text
-			print('key = ', key)
 			desc = self.parseDesc(issue.find('description'))
 			#desc = issue.find('description').text
 
@@ -97,6 +111,26 @@ def is_valid(ch):
 	validchar = u' ._'
 	return ch in validchar
 	
+
+def discard_word(coding, word):
+	if coding == ENG_NUM and len(word) < 2:
+		return True
+	return False
+
+def readDict(fname):
+	f = io.open(fname, mode='r', encoding="utf-8")
+	for line in f:
+		myDict.append(line.replace('\n', ''))
+	f.close()
+
+def extract_MyDict(sentence):
+	words = []
+	for w in myDict:
+		if w in sentence:
+			words.append(w)
+			sentence = sentence.replace(w, '')
+	return (words, sentence)
+
 def extract_words(str):
 	wordList = []
 	sentence = ''
@@ -114,39 +148,39 @@ def extract_words(str):
 			valid = True
 		if is_valid(ch):
 			valid = True
+		
 		if valid == False:
 			ch = u' '
+
+		#if valid == True:
+			#sentence = sentence + ch
+
 		if encoding != currentEncoding or is_space(ch):
 			sentence = sentence.replace(u" ", "")
+
 			if currentEncoding != -1 and len(sentence) != 0:
 				sentence = sentence.replace(u" ", "")
-				if encoding == ENG_NUM:
-					wordList.append((currentEncoding, sentence))
-					#print('token  ', currentEncoding, sentence)
-				elif encoding == CH:
-					words = jieba.cut(sentence, cut_all=False)
-					for word in words:
-						wordList.append((currentEncoding, word))
-						#print('token  ', currentEncoding, word)
-				sentence = ''	
-		currentEncoding = encoding
+
+			#print('sentence = ', sentence)
+			words, sentence = extract_MyDict(sentence)
+			if encoding == ENG_NUM:
+				if sentence != '':
+					words.append(sentence)
+			if encoding == CH:
+				for w in jieba.cut(sentence, cut_all=False):
+					words.append(w)
+
+			for word in words:
+				if word == '':
+					continue
+				if discard_word(currentEncoding, word) == False:
+					wordList.append((currentEncoding, word))
+			sentence = ''	
 		sentence = sentence + ch
+		currentEncoding = encoding
+		#sentence = sentence + ch
 		
 	return wordList
-
-def addFeature(key, words):
-	global featureWordList, issueWordList
-	
-	npWords = np.array(words)
-	issueWordList[key] = []
-
-	for w in words:
-		issueWordList[key].append(w)
-	
-	for w in np.unique(words):
-		if w not in featureWordList:
-			featureWordList.append(w)
-			
 
 #fileList = ['jira_all_1.xml', 'jira_all.xml', 'FREEWVIEW.xml']
 fileList = ['AND_CLOSED.xml']
@@ -154,7 +188,8 @@ fileList = ['AND_CLOSED.xml']
 #fileList = ['img80.xml']			
 def main():
 	global featureWordList
-	
+
+	readDict("mydict.txt")
 	issue_cnt = 0
 	for f in fileList:
 		issue_parser = jira_xml_reader(f)
@@ -170,30 +205,30 @@ def main():
 			summary = prune_text(summary)
 			words += extract_words(summary)
 			
-			if key == 'ML3RTANOM-276':
-				print('got ', key)
 			key = prune_text(key)
+			issueWordList[key] = []
+			issueFeatureList[key] = []
 
-			#print(desc)
-			#for line in desc:
-			#	if key == 'ML3RTANOM-276':
-			#		print(line)
 			desc = prune_text(desc)
 			words += extract_words(desc)
-			if key == 'ML3RTANOM-276':
-				print('words = ', words)
-			addFeature(key, words)
+
+			for w in words:
+				if w[1] not in key and w[1].isdigit() == False:
+					issueWordList[key].append(w[1])
 
 	print('\n\nTotal Issue         {}'.format(issue_cnt))
-	print('feature space      {}'.format(len(featureWordList)))
-	#for f in featureWordList:
-		#print('token = {}'.format(f.encode('utf-8')))
-		#print('token = {}'.format(f))
+	codebook = form_codebook(issueWordList)
+	print_codebook(codebook)
+	for (key, words) in issueWordList.items():
+		issueFeatureList[key] = comput_tf_idf(words, codebook, len(codebook))
+		issueLabelList[key] = 100
 
-	for key, wl in issueWordList.items():
-		if len(wl) < 10:
-			print('key = ', key)
-			print('		words = ', wl)
-		
+		#print('[{}] = {}'.format(key, issueFeatureList[key]))
+
+	h5_dump_dataset([f for (k, f) in issueFeatureList.items()], 
+					[l for (k, l) in issueLabelList.items()], 
+					'issueFeature.hdf5', 
+					'issue',
+					'w')
 		
 main()
